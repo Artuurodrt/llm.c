@@ -782,7 +782,7 @@ void gpt2_zero_grad(GPT2 *model) {
 void gpt2_backward(GPT2 *model) {
 
     // double check we forwarded previously, with targets
-    if (model->mean_loss < 0.0f) {
+    if (model->mean_loss == -1.0f) {
         printf("Error: must forward with targets before backward\n");
         exit(1);
     }
