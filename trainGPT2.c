@@ -20,10 +20,47 @@
 /* Private struct ---------------------------------------------------------------------------- */
 /* Private variables ------------------------------------------------------------------------- */
 /* Private function prototypes --------------------------------------------------------------- */
-/* Private functions ------------------------------------------------------------------------- */
-/* Exported functions ------------------------------------------------------------------------ */
 
-void vGpt2BuildFromCheckpoint(xGPT2_t *pxModel, char *pstrCheckpointPath) 
+static float *prv_pfMallocAndPointParameters(xParameterTensors_t *xParams, size_t *pulParamSizes);
+
+
+static void prv_vGpt2BuildFromCheckpoint(xGPT2_t *pxModel, char *pstrCheckpointPath);
+
+
+/* Private functions ------------------------------------------------------------------------- */
+
+static float *prv_pfMallocAndPointParameters(xParameterTensors_t *xParams, size_t *pulParamSizes) 
+{
+    size_t ulNumParameters = 0;
+
+    for (size_t ucI = 0; ucI < NUM_PARAMETER_TENSORS; ucI++) 
+    {
+        ulNumParameters += pulParamSizes[ucI];
+    }
+
+    /* Malloc all parameters all at once */
+    float *pfParamsMemory = (float*)malloc(ulNumParameters * sizeof(float));
+
+    /* Assign all the tensors */
+    float **ppPtrs[] = 
+    {
+        &xParams->pfWte, &xParams->pfWpe, &xParams->pfLn1w, &xParams->pfLn1b, &xParams->pfQkvw, &xParams->pfQkvb,
+        &xParams->pfAttprojw, &xParams->pfAttprojb, &xParams->pfLn2w, &xParams->pfLn2b, &xParams->pfFcw, &xParams->pfFcb,
+        &xParams->pfFcprojw, &xParams->pfFcprojb, &xParams->pfLnfw, &xParams->pfLnfb
+    };
+
+    float *pfParamsMemoryIterator = pfParamsMemory;
+
+    for (size_t ucI = 0; ucI < NUM_PARAMETER_TENSORS; ucI++) 
+    {
+        *(ppPtrs[ucI]) = pfParamsMemoryIterator;
+        pfParamsMemoryIterator += pulParamSizes[ucI];
+    }
+
+    return pfParamsMemory;
+}
+
+static void prv_vGpt2BuildFromCheckpoint(xGPT2_t *pxModel, char *pstrCheckpointPath) 
 {
     /* Read in model from a checkpoint file */
     FILE *pxModelFile = fopen(pstrCheckpointPath, "rb");
@@ -76,7 +113,7 @@ void vGpt2BuildFromCheckpoint(xGPT2_t *pxModel, char *pstrCheckpointPath)
     printf("num_heads: %u\n", slNH);
     printf("channels: %u\n", slC);
 
-    /* allocate space for all the parameters and read them in */
+    /* Allocate space for all the parameters and read them in */
     pxModel->aulParamSizes[0] = slV * slC;
     pxModel->aulParamSizes[1] = slMaxT * slC;
     pxModel->aulParamSizes[2] = slL * slC;
@@ -94,23 +131,40 @@ void vGpt2BuildFromCheckpoint(xGPT2_t *pxModel, char *pstrCheckpointPath)
     pxModel->aulParamSizes[14] = slC;
     pxModel->aulParamSizes[15] = slC;
 
-    /* count the number of paramaters */
+    /* Count the number of paramaters */
     for (size_t ucI = 0; ucI < NUM_PARAMETER_TENSORS; ucI++) 
     {
         ulNumParameters += pxModel->aulParamSizes[ucI];
     }
     printf("num_parameters: %zu\n", ulNumParameters);
+    pxModel->ulNumParameters = ulNumParameters;
 
+    /* Read in all the parameters from file */
+    pxModel->pfParamsMemory = prv_pfMallocAndPointParameters(&pxModel->xParams, pxModel->aulParamSizes);
+    fread(pxModel->pfParamsMemory, sizeof(float), ulNumParameters, pxModelFile);
+    fclose(pxModelFile);
 
+    /* Other inits */
+    pxModel->pfActsMemory = NULL;
+    pxModel->pfGradsMemory = NULL;
+    pxModel->pfMemoryM = NULL;
+    pxModel->pfMemoryV = NULL;
+    pxModel->pfGradsActsMemory = NULL;
+    pxModel->pulInputs = NULL;
+    pxModel->pulTargets = NULL;
+    pxModel->ulBatchSize = 0;
+    pxModel->ulSeqLen = 0;
+    pxModel->fMeanLoss = -1.0f; /* -1.0f will designate no loss */
 }
 /*---------------------------------------------------------------------------------------------*/
 
+/* Exported functions ------------------------------------------------------------------------ */
 
 int main(void)
 {
     /* build the GPT-2 model from a checkpoint */
     xGPT2_t xModel;
-    vGpt2BuildFromCheckpoint(&xModel, "gpt2_124M.bin");
+    prv_vGpt2BuildFromCheckpoint(&xModel, "gpt2_124M.bin");
 
 
     return 0;
