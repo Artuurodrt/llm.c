@@ -1,5 +1,5 @@
 CC ?= clang
-CFLAGS = -O3 -Ofast -Wno-unused-result
+CFLAGS = -O3 -Ofast -fno-fast-math -Wno-unused-result
 LDFLAGS =
 LDLIBS = -lm
 INCLUDES =
