@@ -23,18 +23,17 @@
 /* Private functions ------------------------------------------------------------------------- */
 /* Exported functions ------------------------------------------------------------------------ */
 
-
-
 void vGpt2BuildFromCheckpoint(xGPT2_t *pxModel, char *pstrCheckpointPath) 
 {
     /* Read in model from a checkpoint file */
     FILE *pxModelFile = fopen(pstrCheckpointPath, "rb");
     int32_t slModelHeader[MODEL_HEADER_SIZE] = { 0 };
-    int32_t slMaxT;
-    int32_t slV;
-    int32_t slL;
-    int32_t slNH;
-    int32_t slC;
+    int32_t slMaxT = 0;
+    int32_t slV = 0;
+    int32_t slL = 0;
+    int32_t slNH = 0;
+    int32_t slC = 0;
+    size_t ulNumParameters = 0;
 
     if (!pxModelFile) 
     { 
@@ -76,6 +75,31 @@ void vGpt2BuildFromCheckpoint(xGPT2_t *pxModel, char *pstrCheckpointPath)
     printf("num_layers: %u\n", slL);
     printf("num_heads: %u\n", slNH);
     printf("channels: %u\n", slC);
+
+    /* allocate space for all the parameters and read them in */
+    pxModel->aulParamSizes[0] = slV * slC;
+    pxModel->aulParamSizes[1] = slMaxT * slC;
+    pxModel->aulParamSizes[2] = slL * slC;
+    pxModel->aulParamSizes[3] = slL * slC;
+    pxModel->aulParamSizes[4] = slL * (3 * slC) * slC;
+    pxModel->aulParamSizes[5] = slL * (3 * slC);
+    pxModel->aulParamSizes[6] = slL * slC * slC;
+    pxModel->aulParamSizes[7] = slL * slC;
+    pxModel->aulParamSizes[8] = slL * slC;
+    pxModel->aulParamSizes[9] = slL * slC;
+    pxModel->aulParamSizes[10] = slL * (4 * slC) * slC;
+    pxModel->aulParamSizes[11] = slL * (4 * slC);
+    pxModel->aulParamSizes[12] = slL * slC * (4 * slC);
+    pxModel->aulParamSizes[13] = slL * slC;
+    pxModel->aulParamSizes[14] = slC;
+    pxModel->aulParamSizes[15] = slC;
+
+    /* count the number of paramaters */
+    for (size_t ucI = 0; ucI < NUM_PARAMETER_TENSORS; ucI++) 
+    {
+        ulNumParameters += pxModel->aulParamSizes[ucI];
+    }
+    printf("num_parameters: %zu\n", ulNumParameters);
 
 
 }
