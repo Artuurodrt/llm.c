@@ -5,8 +5,6 @@
 
 /* Includes ---------------------------------------------------------------------------------- */
 #include "trainGPT2.h"
-#include <stdio.h>
-#include <stdlib.h>
 /* Private define ---------------------------------------------------------------------------- */
 #define MODEL_HEADER_SIZE               (256)
 #define MAX_SEQ_LEN_INDEX               (2)
@@ -23,8 +21,9 @@
 
 static float *prv_pfMallocAndPointParameters(xParameterTensors_t *xParams, size_t *pulParamSizes);
 
-
 static void prv_vGpt2BuildFromCheckpoint(xGPT2_t *pxModel, char *pstrCheckpointPath);
+
+static void prv_vDataloaderInit(xDataLoader_t *xpLoader, char *pstrFileName, uint8_t ucB, uint8_t ucT);
 
 
 /* Private functions ------------------------------------------------------------------------- */
@@ -158,13 +157,56 @@ static void prv_vGpt2BuildFromCheckpoint(xGPT2_t *pxModel, char *pstrCheckpointP
 }
 /*---------------------------------------------------------------------------------------------*/
 
+static void prv_vDataloaderInit(xDataLoader_t *xpLoader, char *pstrFileName, uint8_t ucB, uint8_t ucT) 
+{
+    xpLoader->ucB = ucB;
+    xpLoader->ucT = ucT;
+
+    /* Open the input file for reading */
+    xpLoader->pxTokensFile = fopen(pstrFileName, "rb");
+    if(xpLoader->pxTokensFile ==NULL)
+    {
+        printf("Error opening tokens file\n");
+        exit(1);
+    }
+    fseek(xpLoader->pxTokensFile, 0, SEEK_END);
+    xpLoader->ullFileSize = ftell(xpLoader->pxTokensFile);
+    fseek(xpLoader->pxTokensFile, 0, SEEK_SET);
+
+    if (xpLoader->ullFileSize < (ucB * ucT + 1) * sizeof(int)) {
+        printf("Error: file size is too small for the batch size and sequence length\n");
+        exit(1);
+    }
+    /* start at the beginning */
+    xpLoader->ullCurrentPosition = 0; 
+
+    /* allocate space for B*T + 1 integers to store the inputs and targets */
+    xpLoader->pulBatch = (int*) malloc((ucB * ucT + 1) * sizeof(int));
+    xpLoader->pulInputs = xpLoader->pulBatch;
+    xpLoader->pulTargets = xpLoader->pulBatch + 1; // targets are shifted by one
+    xpLoader->ulNumBatches = xpLoader->ullFileSize / (ucB * ucT * sizeof(int));
+}
+
 /* Exported functions ------------------------------------------------------------------------ */
 
 int main(void)
 {
-    /* build the GPT-2 model from a checkpoint */
+    /* Build the GPT-2 model from a checkpoint */
     xGPT2_t xModel;
     prv_vGpt2BuildFromCheckpoint(&xModel, "gpt2_124M.bin");
+
+    /* Build the DataLoaders from tokens files, for now use tiny_shakespeare if available, else tiny_stories */
+    char *pstrTinyStoriesTrain = "data/TinyStories_train.bin";
+    char *pstrTinyStoriesVal = "data/TinyStories_val.bin";
+    char *pstrTinyShakespeareTrain = "data/tiny_shakespeare_train.bin";
+    char *pstrTinyShakespeareVal = "data/tiny_shakespeare_val.bin";
+    char *pstrTrainTokens = access(pstrTinyShakespeareTrain, F_OK) != -1 ? pstrTinyShakespeareTrain : pstrTinyStoriesTrain;
+    char *pstrTalTokens = access(pstrTinyShakespeareVal, F_OK) != -1 ? pstrTinyShakespeareVal : pstrTinyStoriesVal;
+    uint8_t ucB = 4;
+    uint8_t ucT = 64;
+    xDataLoader_t xTrainLoader;
+
+    prv_vDataloaderInit(&xTrainLoader, pstrTrainTokens, ucB, ucT);
 
 
     return 0;

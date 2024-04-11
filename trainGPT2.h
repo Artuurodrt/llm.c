@@ -9,6 +9,9 @@
 /* Includes ---------------------------------------------------------------------------------- */
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 /* Define ------------------------------------------------------------------------------------ */
 #define NUM_PARAMETER_TENSORS               (16)
 #define NUM_ACTIVATION_TENSORS              (23)
@@ -118,6 +121,31 @@ typedef struct
     float fMeanLoss; /* After a forward pass with targets, will be populated with the mean loss */
 } 
 xGPT2_t;
+
+/**
+ * @brief Structure for data loading.
+ * 
+ * This structure defines hyperparameters, input handling and its state,
+ * output memory, and convenience variables for data loading.
+ */
+typedef struct 
+{
+    /* Hyperparameters */
+    uint8_t ucB;
+    uint8_t ucT;
+    /* input handling and its state */
+    FILE *pxTokensFile;
+    uint64_t ullFileSize;
+    uint64_t ullCurrentPosition;
+    /* output memory */
+    uint32_t *pulBatch;
+    uint32_t *pulInputs;
+    uint32_t *pulTargets;
+    // convenience variables
+    uint32_t ulNumBatches;
+} 
+xDataLoader_t;
+
 
 /* Global variables -------------------------------------------------------------------------- */
 /* Exported function prototypes -------------------------------------------------------------- */
