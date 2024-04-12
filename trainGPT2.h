@@ -12,6 +12,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <time.h>
+
 /* Define ------------------------------------------------------------------------------------ */
 #define NUM_PARAMETER_TENSORS               (16)
 #define NUM_ACTIVATION_TENSORS              (23)

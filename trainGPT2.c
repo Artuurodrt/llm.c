@@ -25,6 +25,8 @@ static void prv_vGpt2BuildFromCheckpoint(xGPT2_t *pxModel, char *pstrCheckpointP
 
 static void prv_vDataloaderInit(xDataLoader_t *xpLoader, char *pstrFileName, uint8_t ucB, uint8_t ucT);
 
+static void vDataLoaderReset(xDataLoader_t *pxLoader);
+
 
 /* Private functions ------------------------------------------------------------------------- */
 
@@ -186,6 +188,35 @@ static void prv_vDataloaderInit(xDataLoader_t *xpLoader, char *pstrFileName, uin
     xpLoader->pulTargets = xpLoader->pulBatch + 1; // targets are shifted by one
     xpLoader->ulNumBatches = xpLoader->ullFileSize / (ucB * ucT * sizeof(int));
 }
+/*---------------------------------------------------------------------------------------------*/
+
+static void prv_vDataLoaderReset(xDataLoader_t *pxLoader) 
+{
+    pxLoader->ullCurrentPosition = 0;
+}
+/*---------------------------------------------------------------------------------------------*/
+
+static void prv_vDataloaderNextBatch(xDataLoader_t *pxLoader) 
+{
+    uint8_t ucB = pxLoader->ucB;
+    uint8_t ucT = pxLoader->ucT;
+
+    /* if we are at the end of the file, loop back to the beginning */
+    if (pxLoader->ullCurrentPosition + (ucB*ucT+1) * sizeof(int) > pxLoader->ullFileSize) 
+    {
+        pxLoader->ullCurrentPosition = 0;
+    }
+    /* read the B*T+1 integers from the file into batch */
+    fseek(pxLoader->pxTokensFile, pxLoader->ullCurrentPosition, SEEK_SET);
+    fread(pxLoader->pulBatch, sizeof(int), ucB*ucT+1, pxLoader->pxTokensFile);
+    /* advance the current position by B*T integers */
+    pxLoader->ullCurrentPosition += ucB*ucT * sizeof(int);
+}
+
+
+
+
+
 
 /* Exported functions ------------------------------------------------------------------------ */
 
@@ -205,8 +236,41 @@ int main(void)
     uint8_t ucB = 4;
     uint8_t ucT = 64;
     xDataLoader_t xTrainLoader;
+    xDataLoader_t xValLoader;
+    uint8_t ucValNumBatches = 10;
+    uint64_t ullRngState = 1337;
+    const uint8_t ucGenMaxLength = 64; /* during inference step we'll generate sequences of this many tokens */
+    uint32_t ulGenTokens[ucGenMaxLength];
+    struct timespec xStart, xEnd;
 
     prv_vDataloaderInit(&xTrainLoader, pstrTrainTokens, ucB, ucT);
+    printf("train dataset num_batches: %d\n", xTrainLoader.ulNumBatches);
+
+    prv_vDataloaderInit(&xValLoader, pstrTalTokens, ucB, ucT);
+    printf("val dataset num_batches: %d\n", xValLoader.ulNumBatches);
+
+    /* some memory for generating samples from the model */
+
+    /* train */
+    for (uint8_t ucStep = 0; ucStep <= 20; ucStep++) 
+    {
+        /* once in a while estimate the validation loss */
+        if (ucStep % 10 == 0) 
+        {
+            float fValLoss = 0.0f;
+            prv_vDataLoaderReset(&xValLoader);
+            for (uint8_t ucI = 0; ucI < ucValNumBatches; ucI++) 
+            {
+            
+            
+            
+            }
+
+
+        }
+    }
+
+
 
 
     return 0;
