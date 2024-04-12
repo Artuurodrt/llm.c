@@ -40,7 +40,7 @@ static float *prv_pfMallocAndPointParameters(xParameterTensors_t *xParams, size_
     }
 
     /* Malloc all parameters all at once */
-    float *pfParamsMemory = (float*)malloc(ulNumParameters * sizeof(float));
+    float *pfParamsMemory = malloc(ulNumParameters * sizeof(float));
 
     /* Assign all the tensors */
     float **ppPtrs[] = 
@@ -183,7 +183,7 @@ static void prv_vDataloaderInit(xDataLoader_t *xpLoader, char *pstrFileName, uin
     xpLoader->ullCurrentPosition = 0; 
 
     /* allocate space for B*T + 1 integers to store the inputs and targets */
-    xpLoader->pulBatch = (int*) malloc((ucB * ucT + 1) * sizeof(int));
+    xpLoader->pulBatch = malloc((ucB * ucT + 1) * sizeof(int));
     xpLoader->pulInputs = xpLoader->pulBatch;
     xpLoader->pulTargets = xpLoader->pulBatch + 1; // targets are shifted by one
     xpLoader->ulNumBatches = xpLoader->ullFileSize / (ucB * ucT * sizeof(int));
