@@ -25,7 +25,7 @@ static void prv_vGpt2BuildFromCheckpoint(xGPT2_t *pxModel, char *pstrCheckpointP
 
 static void prv_vDataloaderInit(xDataLoader_t *xpLoader, char *pstrFileName, uint8_t ucB, uint8_t ucT);
 
-static void vDataLoaderReset(xDataLoader_t *pxLoader);
+static void prv_vDataLoaderReset(xDataLoader_t *pxLoader);
 
 
 /* Private functions ------------------------------------------------------------------------- */
@@ -214,6 +214,112 @@ static void prv_vDataloaderNextBatch(xDataLoader_t *pxLoader)
 }
 
 
+static void prv_vGpt2Forward(xGPT2_t *pxModel, uint32_t *pulInputs, uint32_t *pulTargets, uint8_t ucB, uint8_t ucT)
+{
+    /* convenience parameters */
+    uint16_t usV = pxModel->xConfig.usVocabSize;
+    uint8_t ucL = pxModel->xConfig.ucNumLayers;
+    uint8_t ucNH = pxModel->xConfig.ucNumHeads;
+    uint8_t ucC = pxModel->xConfig.usChannels;
+    float *pfResidual;
+
+    /* ensure the model was initialized or error out */
+    if (pxModel->pfParamsMemory == NULL) 
+    {
+        printf("Error: model was not initialized properly.\n");
+        exit(1);
+    }
+
+    /* allocate space for all the activations if needed (done here, lazily) */
+    if(pxModel->pfActsMemory == NULL) 
+    {
+        /* record the current B,T as well */
+        pxModel->ulBatchSize = ucB;
+        pxModel->ulSeqLen = ucT;
+
+        pxModel->ulActSizes[0] = ucB * ucT * ucC; // encoded
+        pxModel->ulActSizes[1] = ucL * ucB * ucT * ucC; // ln1
+        pxModel->ulActSizes[2] = ucL * ucB * ucT;  // ln1_mean
+        pxModel->ulActSizes[3] = ucL * ucB * ucT;  // ln1_rstd
+        pxModel->ulActSizes[4] = ucL * ucB * ucT * 3*ucC; // qkv
+        pxModel->ulActSizes[5] = ucL * ucB * ucT * ucC;  // atty
+        pxModel->ulActSizes[6] = ucL * ucB * ucNH * ucT * ucT;  // preatt
+        pxModel->ulActSizes[7] = ucL * ucB * ucNH * ucT * ucT;  // att
+        pxModel->ulActSizes[8] = ucL * ucB * ucT * ucC; // attproj
+        pxModel->ulActSizes[9] = ucL * ucB * ucT * ucC; // residual2
+        pxModel->ulActSizes[10] = ucL * ucB * ucT * ucC; // ln2
+        pxModel->ulActSizes[11] = ucL * ucB * ucT; // ln2_mean
+        pxModel->ulActSizes[12] = ucL * ucB * ucT; // ln2_rstd
+        pxModel->ulActSizes[13] = ucL * ucB * ucT * 4 * ucC; // fch
+        pxModel->ulActSizes[14] = ucL * ucB * ucT * 4 * ucC; // fch_gelu
+        pxModel->ulActSizes[15] = ucL * ucB * ucT * ucC; // fcproj
+        pxModel->ulActSizes[16] = ucL * ucB * ucT * ucC; // residual3
+        pxModel->ulActSizes[17] = ucB * ucT * ucC; // lnf
+        pxModel->ulActSizes[18] = ucB * ucT; // lnf_mean
+        pxModel->ulActSizes[19] = ucB * ucT; // lnf_rstd
+        pxModel->ulActSizes[20] = ucB * ucT * usV; // logits
+        pxModel->ulActSizes[21] = ucB * ucT * usV; // probs
+        pxModel->ulActSizes[22] = ucB * ucT; // losses
+
+        size_t ulNumActivations = 0;
+        for (size_t i = 0; i < NUM_ACTIVATION_TENSORS; i++) 
+        {
+            ulNumActivations += pxModel->ulActSizes[i];
+        }
+
+        printf("num_activations: %zu\n", ulNumActivations);
+        pxModel->ulNumActivations = ulNumActivations;
+        pxModel->pfActsMemory = malloc_and_point_activations(&pxModel->xActs, pxModel->ulActSizes);
+        /* also create memory for caching inputs and targets */
+        pxModel->pulInputs = malloc(ucB * ucT * sizeof(int));
+        /* might be unused if we never have targets but it's small */
+        pxModel->pulTargets = malloc(ucB * ucT * sizeof(int)); 
+    }
+    else
+    {
+        /* validate B,T is no larger than what was previously allocated */
+        /* in principle, we could re-allocate a larger chunk of memory, for now we just error out */
+        if (ucB > pxModel->ulBatchSize || ucT > pxModel->ulSeqLen) 
+        {
+            printf("Error: batch size or sequence length is inadequately large\n");
+            printf("Model: B=%d T=%d, Desired: B=%d T=%d\n", pxModel->ulBatchSize, pxModel->ulSeqLen, ucB, ucT);
+            exit(1);
+        }
+    }
+
+
+    /* cache the inputs/targets */
+    memcpy(pxModel->pulInputs, pulInputs, ucB * ucT * sizeof(int));
+    if (pulTargets != NULL) 
+    {
+        memcpy(pxModel->pulTargets, pulTargets, ucB * ucT * sizeof(int));
+    }
+
+    /* forward pass */
+    xParameterTensors_t xParams = pxModel->xParams; /* for brevity */
+    xActivationTensors_t xActs = pxModel->xActs;
+    encoder_forward(xActs.pfEncoded, pulInputs, xParams.pfWte, xParams.pfWpe, ucB, ucT, ucC); /* encoding goes into residual[0] */
+
+    for (uint8_t ucl = 0; ucl < ucL; ucl++) 
+    {
+        pfResidual = ucl == 0 ? xActs.pfEncoded : xActs.pfResidual3 + (ucl-1) * ucB * ucT * ucC;
+
+        // get the pointers of the weights for this layer
+        float *pfLln1w = xParams.pfLn1w + ucl * ucC;
+        float *pfLln1b = xParams.pfLn1b + ucl * ucC;
+        float *pfLqkvw = xParams.pfQkvw + ucl * 3 * ucC * ucC;
+        float *pfLqkvb = xParams.pfQkvb + ucl * 3 * ucC;
+        float *pfLattprojw = xParams.pfAttprojw + ucl * ucC * ucC;
+        float *pfLattprojb = xParams.pfAttprojb + ucl * ucC;
+        float *pfLln2w = xParams.pfLn2w + ucl * ucC;
+        float *pfLln2b = xParams.pfLn2b + ucl * ucC;
+        float *pfLfcw = xParams.pfFcw + ucl * 4 * ucC * ucC;
+        float *pfLfcb = xParams.pfFcb + ucl * 4 * ucC;
+        float *pfLfcprojw = xParams.pfFcprojw + ucl * ucC * 4 * ucC;
+        float *pfLfcprojb = xParams.pfFcprojb + ucl * ucC;
+
+    }
+}
 
 
 
@@ -261,8 +367,9 @@ int main(void)
             prv_vDataLoaderReset(&xValLoader);
             for (uint8_t ucI = 0; ucI < ucValNumBatches; ucI++) 
             {
-            
-            
+                prv_vDataloaderNextBatch(&xValLoader);
+
+
             
             }
 
